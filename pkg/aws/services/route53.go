@@ -89,12 +89,35 @@ func (c *route53Client) listHostedZones(ctx context.Context) ([]types.HostedZone
 		return nil, err
 	}
 
-	reqList := &route53.ListHostedZonesInput{}
-	respList, err := client.ListHostedZones(ctx, reqList)
+	zones, err := listAllHostedZones(ctx, client)
 	if err != nil {
 		return nil, err
 	}
 
-	c.hostedZonesCache.Set(hostedZonesCacheKey, respList.HostedZones, c.hostedZonesCacheTTL)
-	return respList.HostedZones, nil
+	c.hostedZonesCache.Set(hostedZonesCacheKey, zones, c.hostedZonesCacheTTL)
+	return zones, nil
+}
+
+type hostedZoneLister interface {
+	ListHostedZones(ctx context.Context, params *route53.ListHostedZonesInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
+}
+
+// listAllHostedZones paginates ListHostedZones. The AWS API returns at most 100
+// zones per page, so a single call would silently drop later pages.
+func listAllHostedZones(ctx context.Context, lister hostedZoneLister) ([]types.HostedZone, error) {
+	var zones []types.HostedZone
+	var marker *string
+	for {
+		reqList := &route53.ListHostedZonesInput{Marker: marker}
+		respList, err := lister.ListHostedZones(ctx, reqList)
+		if err != nil {
+			return nil, err
+		}
+		zones = append(zones, respList.HostedZones...)
+		if !respList.IsTruncated {
+			break
+		}
+		marker = respList.NextMarker
+	}
+	return zones, nil
 }
