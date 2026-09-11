@@ -102,22 +102,18 @@ type hostedZoneLister interface {
 	ListHostedZones(ctx context.Context, params *route53.ListHostedZonesInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
 }
 
-// listAllHostedZones paginates ListHostedZones. The AWS API returns at most 100
-// zones per page, so a single call would silently drop later pages.
+// listAllHostedZones paginates ListHostedZones using the SDK generated paginator.
+// The AWS API returns at most 100 zones per page, so a single call would silently
+// drop later pages.
 func listAllHostedZones(ctx context.Context, lister hostedZoneLister) ([]types.HostedZone, error) {
+	paginator := route53.NewListHostedZonesPaginator(lister, &route53.ListHostedZonesInput{})
 	var zones []types.HostedZone
-	var marker *string
-	for {
-		reqList := &route53.ListHostedZonesInput{Marker: marker}
-		respList, err := lister.ListHostedZones(ctx, reqList)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, err
 		}
-		zones = append(zones, respList.HostedZones...)
-		if !respList.IsTruncated {
-			break
-		}
-		marker = respList.NextMarker
+		zones = append(zones, page.HostedZones...)
 	}
 	return zones, nil
 }
